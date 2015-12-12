@@ -15,6 +15,7 @@ float minPowerAngle    = 3;
 float maxPowerAngle    = 20;
 float minThrottleVolts = 0.3;
 float maxThrottleVolts = 4.7;
+float boardVolts       = 5;
 
 
 // Some of the ADXL345 registers.
@@ -33,8 +34,12 @@ char DATAZ1 = 0x37;	//Z-Axis Data 1
 //char DATAZ0 = 0xB6;	//Z-Axis Data 0
 //char DATAZ1 = 0xB7;	//Z-Axis Data 1
 
-// Assign the Chip Select signal pin.
-int CS = 8;
+// Chip Select signal pin.
+static int CS = 8;
+// Reverse relay pin.
+static int REVERSE = 5;
+// Throttle control pin.
+static int THROTTLE = 3;
 
 // Buffer for ADXL345 register values.
 unsigned char values[10];
@@ -53,6 +58,10 @@ void setup() {
   pinMode(CS, OUTPUT);
   digitalWrite(CS, HIGH);
   
+  // Set the reverse relay for output.
+  pinMode(REVERSE, OUTPUT);
+  digitalWrite(REVERSE, LOW);
+  
   // Put ADXL345 into +/- 4G range by writing the value 0x01 to the DATA_FORMAT register.
   writeRegister(DATA_FORMAT, 0x01);
 
@@ -70,17 +79,32 @@ void loop() {
  * Send power to motor.
  */
 void powerMotor(float angle) {
-  float angleSize = abs(angle);
-  boolean reverse = (angle > 1);
-  float voltage = 0;
+
+  float   angleSize = abs(angle);
+  boolean reverse   = (angle > 1);
+  float   voltage   = 0;
+  float   pwm       = 0;
 
   // Within bounds.
   if (angleSize > minPowerAngle && angleSize < maxPowerAngle) {
+
     // Find desired voltage.
-    voltage = mapfloat(angleSize, minPowerAngle, maxPowerAngle, minThrottleVolts, maxThrottleVolts);
+    voltage = mapFloat(angleSize, minPowerAngle, maxPowerAngle, minThrottleVolts, maxThrottleVolts);
+
+    // Find PWM output value.
+    pwm = 255 * (voltage / boardVolts);
+    analogWrite(THROTTLE, pwm);
+
+    // Set reverse.
+    if (reverse) {
+      digitalWrite(REVERSE, HIGH);
+    }
+    else {
+      digitalWrite(REVERSE, LOW);
+    }
   }
 
-  // Print the results to the terminal.
+  // Print results.
   if (voltage > 0) {
 //    Serial.print(angle);
 //    Serial.print(" -- ");
@@ -122,7 +146,7 @@ float findAngle() {
 /**
  * Map floats.
  */
-float mapfloat(float x, float inMin, float inMax, float outMin, float outMax) {
+float mapFloat(float x, float inMin, float inMax, float outMin, float outMax) {
   return (x - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;
 }
 
