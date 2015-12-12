@@ -1,15 +1,21 @@
 /**
  * Motion controlled electric skateboard.
  *
- * Arduino: Leonaro
+ * Arduino: Leonardo
  * Accelerometer: ADXL345
  */
 
 // Add the SPI library so we can communicate with the ADXL345 sensor.
 #include <SPI.h>
 
-// Assign the Chip Select signal pin.
-int CS = 8;
+
+// Main adjustments.
+int   readDelay        = 20;
+float minPowerAngle    = 3;
+float maxPowerAngle    = 20;
+float minThrottleVolts = 0.3;
+float maxThrottleVolts = 4.7;
+
 
 // Some of the ADXL345 registers.
 char POWER_CTL = 0x2D;
@@ -26,6 +32,9 @@ char DATAZ1 = 0x37;	//Z-Axis Data 1
 //char DATAY1 = 0xB5;	//Y-Axis Data 1
 //char DATAZ0 = 0xB6;	//Z-Axis Data 0
 //char DATAZ1 = 0xB7;	//Z-Axis Data 1
+
+// Assign the Chip Select signal pin.
+int CS = 8;
 
 // Buffer for ADXL345 register values.
 unsigned char values[10];
@@ -52,11 +61,38 @@ void setup() {
 }
 
 void loop() {
-  
-  // Print the results to the terminal.
-  Serial.println( findAngle() );
+  powerMotor(findAngle());
+  delay(readDelay);
+}
 
-  delay(20);
+
+/**
+ * Send power to motor.
+ */
+void powerMotor(float angle) {
+  float angleSize = abs(angle);
+  boolean reverse = (angle > 1);
+  float voltage = 0;
+
+  // Within bounds.
+  if (angleSize > minPowerAngle && angleSize < maxPowerAngle) {
+    // Find desired voltage.
+    voltage = mapfloat(angleSize, minPowerAngle, maxPowerAngle, minThrottleVolts, maxThrottleVolts);
+  }
+
+  // Print the results to the terminal.
+  if (voltage > 0) {
+//    Serial.print(angle);
+//    Serial.print(" -- ");
+//    Serial.print(angleSize);
+//    Serial.print(" -- ");
+    Serial.print(voltage);
+    Serial.print("v -- ");
+    Serial.println(reverse);
+  }
+  else {
+    Serial.println("OFF");
+  }
 }
 
 
@@ -80,6 +116,14 @@ float findAngle() {
   // Calculate angle will be between -360 and 360 degrees.
   float angle = atan2(x, z) * 180.0f / M_PI; 
   return angle; 
+}
+
+
+/**
+ * Map floats.
+ */
+float mapfloat(float x, float inMin, float inMax, float outMin, float outMax) {
+  return (x - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;
 }
 
 
