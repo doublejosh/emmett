@@ -1,67 +1,71 @@
 /**
- * Motion controlled electric skateboard.
+ * Emmett -- diy one-wheel, motion control, electric skateboard.
+ * v0.0.2
  *
  * Arduino: Leonardo
  * Accelerometer: ADXL345
  */
 
-// Add the SPI library so we can communicate with the ADXL345 sensor.
+// Communicate with the sensor.
 #include <SPI.h>
 
-
 // Main adjustments.
-int   readDelay        = 20;
-float minPowerAngle    = 3;
-float maxPowerAngle    = 20;
-float minThrottleVolts = 0.3;
-float maxThrottleVolts = 4.7;
-float boardVolts       = 5;
+static float minPowerAngle    = 3;
+static float maxPowerAngle    = 20;
+static float powerDelayAngle  = 5;
+static float powerDelay       = 1500;
+static float powerOffDelay    = 4000;
+static float minThrottleVolts = 0.3;
+static float maxThrottleVolts = 4.7;
+static int   readDelay        = 20;
 
+// Pin configurations.
+unsigned static int   CS       = 8; // Chip Select signal pin.
+unsigned static int   REVERSE  = 5; // Reverse relay pin.
+unsigned static int   THROTTLE = 3; // Throttle control pin.
+static float VOLTAGE  = 5; // Arduino voltage.
 
-// Some of the ADXL345 registers.
-char POWER_CTL = 0x2D;
-char DATA_FORMAT = 0x31;
-char DATAX0 = 0x32;	//X-Axis Data 0
-char DATAX1 = 0x33;	//X-Axis Data 1
-char DATAY0 = 0x34;	//Y-Axis Data 0
-char DATAY1 = 0x35;	//Y-Axis Data 1
-char DATAZ0 = 0x36;	//Z-Axis Data 0
-char DATAZ1 = 0x37;	//Z-Axis Data 1
-//char DATAX0 = 0xB2;	//X-Axis Data 0
-//char DATAX1 = 0xB3;	//X-Axis Data 1
-//char DATAY0 = 0xB4;	//Y-Axis Data 0
-//char DATAY1 = 0xB5;	//Y-Axis Data 1
-//char DATAZ0 = 0xB6;	//Z-Axis Data 0
-//char DATAZ1 = 0xB7;	//Z-Axis Data 1
+// ADXL345 registers.
+static char POWER_CTL = 0x2D;
+static char DATA_FORMAT = 0x31;
+static char DATAX0 = 0x32; //X-Axis Data 0
+static char DATAX1 = 0x33; //X-Axis Data 1
+static char DATAY0 = 0x34; //Y-Axis Data 0
+static char DATAY1 = 0x35; //Y-Axis Data 1
+static char DATAZ0 = 0x36; //Z-Axis Data 0
+static char DATAZ1 = 0x37; //Z-Axis Data 1
+// Some Arduinos supposedly require alternate data addresses.
+//static char DATAX0 = 0xB2; //X-Axis Data 0
+//static char DATAX1 = 0xB3; //X-Axis Data 1
+//static char DATAY0 = 0xB4; //Y-Axis Data 0
+//static char DATAY1 = 0xB5; //Y-Axis Data 1
+//static char DATAZ0 = 0xB6; //Z-Axis Data 0
+//static char DATAZ1 = 0xB7; //Z-Axis Data 1
 
-// Chip Select signal pin.
-static int CS = 8;
-// Reverse relay pin.
-static int REVERSE = 5;
-// Throttle control pin.
-static int THROTTLE = 3;
+// Internal globals.
+int x,y,z; // Accelerometer axis values.
+unsigned char values[10]; // Buffer for accelerometer values.
+int status = 0; // Current device state.
+unsigned int powerDelayCycles = 0; // Power start counter.
+unsigned int powerOffCycles = 0; // Power off counter.
 
-// Buffer for ADXL345 register values.
-unsigned char values[10];
-// Hold the x,y and z axis accelerometer values.
-int x,y,z;
-
-void setup() { 
+// Statup.
+void setup() {
   // Initiate and configure the SPI communication.
   SPI.begin();
   SPI.setDataMode(SPI_MODE3);
 
   // Create a serial connection for debugging.
   Serial.begin(9600);
-  
+
   // Set the Chip Select for output.
   pinMode(CS, OUTPUT);
   digitalWrite(CS, HIGH);
-  
+
   // Set the reverse relay for output.
   pinMode(REVERSE, OUTPUT);
   digitalWrite(REVERSE, LOW);
-  
+
   // Put ADXL345 into +/- 4G range by writing the value 0x01 to the DATA_FORMAT register.
   writeRegister(DATA_FORMAT, 0x01);
 
@@ -69,9 +73,65 @@ void setup() {
   writeRegister(POWER_CTL, 0x08);
 }
 
+// Continue.
 void loop() {
-  powerMotor(findAngle());
+  powerMotor(manageRide(findAngle()));
   delay(readDelay);
+}
+
+
+/**
+ * Use sensor data for overall UX.
+ *
+ * 0 = resting
+ * 1 = on
+ * ...more to come.
+ */
+float manageRide(float angle) {
+  float angleSize = abs(angle);
+
+  // Already on.
+  if (status == 1) {
+    // Within acceleration bounds.
+    if (angleSize > minPowerAngle && angleSize < maxPowerAngle) {
+      return angle;
+    }
+    // Level, glide.
+    else if (angleSize < minPowerAngle) {
+      return 0;
+    }
+    // Non-riding position.
+    else {
+      // Allow turning off for later power delay.
+      if (powerOffCycles >= (powerOffDelay / readDelay)) {
+        // Begin off state.
+        status = 0;
+        powerOffCycles = 0;
+        powerDelayCycles = 0;
+      }
+      powerOffCycles++;
+      return 0;
+    }
+  }
+  else if (angleSize < powerDelayAngle) {
+    // Off, but level enough to start...
+
+    // Allow crossing power delay.
+    if (powerDelayCycles >= (powerDelay / readDelay)) {
+      // Riding start state.
+      status = 1;
+      powerDelayCycles = 0;
+      powerOffCycles = 0;
+      return angle;
+    }
+    powerDelayCycles++;
+    return 0;
+  }
+  else {
+    // Non-use state.
+    powerDelayCycles = 0;
+    return 0;
+  }
 }
 
 
@@ -79,42 +139,34 @@ void loop() {
  * Send power to motor.
  */
 void powerMotor(float angle) {
-
-  float   angleSize = abs(angle);
-  boolean reverse   = (angle > 1);
-  float   voltage   = 0;
-  float   pwm       = 0;
-
-  // Within bounds.
-  if (angleSize > minPowerAngle && angleSize < maxPowerAngle) {
+  // Avoid computation.
+  if (angle > 0) {
 
     // Find desired voltage.
-    voltage = mapFloat(angleSize, minPowerAngle, maxPowerAngle, minThrottleVolts, maxThrottleVolts);
+    float voltage = mapFloat(abs(angle), minPowerAngle, maxPowerAngle, minThrottleVolts, maxThrottleVolts);
 
     // Find PWM output value.
-    pwm = 255 * (voltage / boardVolts);
-    analogWrite(THROTTLE, pwm);
+    analogWrite(THROTTLE, 255 * (voltage / VOLTAGE));
 
     // Set reverse.
-    if (reverse) {
+    if (angle > 1) {
       digitalWrite(REVERSE, HIGH);
     }
     else {
       digitalWrite(REVERSE, LOW);
     }
-  }
 
-  // Print results.
-  if (voltage > 0) {
-//    Serial.print(angle);
-//    Serial.print(" -- ");
-//    Serial.print(angleSize);
-//    Serial.print(" -- ");
+    // Debugging.
+    // Serial.print(angle);
+    // Serial.print(" -- ");
     Serial.print(voltage);
     Serial.print("v -- ");
-    Serial.println(reverse);
+    Serial.println(!!(angle > 1));
+    Serial.print(" ----- ");
+    Serial.print(status);
   }
   else {
+    // Debugging.
     Serial.println("OFF");
   }
 }
@@ -136,10 +188,10 @@ float findAngle() {
   //y = ((int)values[3]<<8)|(int)values[2];
   // The Z value is stored in values[4] and values[5].
   z = ((int)values[5]<<8)|(int)values[4];
-  
+
   // Calculate angle will be between -360 and 360 degrees.
-  float angle = atan2(x, z) * 180.0f / M_PI; 
-  return angle; 
+  float angle = atan2(x, z) * 180.0f / M_PI;
+  return angle;
 }
 
 
@@ -170,7 +222,7 @@ void writeRegister(char registerAddress, char value) {
 
 /**
  * Read registers starting from address, store values in buffer.
- * 
+ *
  * char registerAddress - Register addresses to start the read sequence.
  * int  numBytes        - Number of registers to read.
  * char * values        - Pointer to a buffer where operation results should be stored.
@@ -180,7 +232,7 @@ void readRegister(char registerAddress, int numBytes, unsigned char * values) {
   char address = 0x80 | registerAddress;
   // If we're doing a multi-byte read, bit 6 needs to be set as well.
   if (numBytes > 1) address = address | 0x40;
-  
+
   // Set the Chip select pin low to start an SPI packet.
   digitalWrite(CS, LOW);
   // Transfer the starting register address that needs to be read.
@@ -192,4 +244,3 @@ void readRegister(char registerAddress, int numBytes, unsigned char * values) {
   // Set the Chips Select pin high to end the SPI packet.
   digitalWrite(CS, HIGH);
 }
-
