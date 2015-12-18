@@ -54,7 +54,6 @@ unsigned char values[10]; // Buffer for accelerometer values.
 int status = 0; // Current device state.
 unsigned int powerDelayCycles = 0; // Power start counter.
 unsigned int powerOffCycles = 0; // Power off counter.
-unsigned int powerAdjust = 0; // Input to limit motor power.
 
 // Statup.
 void setup() {
