@@ -1,6 +1,11 @@
-/**
+/**                                __    __
+ *    ____   _____   _____   _____/  |__/  |_
+ *  _/ __ \ /     \ /     \_/ __ \   __\   __\
+ *  \  ___/|  Y Y  \  Y Y  \  ___/|  |  |  |
+ *   \___  >__|_|  /__|_|  /\___  >__|  |__|
+ *       \/      \/      \/     \/
  * Emmett -- diy one-wheel, motion control, electric skateboard.
- * v0.0.2
+ * v0.0.3
  *
  * Arduino: Leonardo
  * Accelerometer: ADXL345
@@ -20,10 +25,11 @@ static float maxThrottleVolts = 4.7;
 static int   readDelay        = 20;
 
 // Pin configurations.
-unsigned static int   CS       = 8; // Chip Select signal pin.
-unsigned static int   REVERSE  = 5; // Reverse relay pin.
-unsigned static int   THROTTLE = 3; // Throttle control pin.
-static float VOLTAGE  = 5; // Arduino voltage.
+unsigned static int CS       = 8; // Chip Select signal pin.
+unsigned static int REVERSE  = 5; // Reverse relay pin.
+unsigned static int THROTTLE = 3; // Throttle control pin.
+unsigned static int LIMITER  = 1; // Power limiter.
+static float        VOLTAGE  = 5; // Arduino voltage.
 
 // ADXL345 registers.
 static char POWER_CTL = 0x2D;
@@ -48,6 +54,7 @@ unsigned char values[10]; // Buffer for accelerometer values.
 int status = 0; // Current device state.
 unsigned int powerDelayCycles = 0; // Power start counter.
 unsigned int powerOffCycles = 0; // Power off counter.
+unsigned int powerAdjust = 0; // Input to limit motor power.
 
 // Statup.
 void setup() {
@@ -61,6 +68,9 @@ void setup() {
   // Set the Chip Select for output.
   pinMode(CS, OUTPUT);
   digitalWrite(CS, HIGH);
+
+  // Setup motor limiter.
+  pinMode(LIMITER, INPUT);
 
   // Set the reverse relay for output.
   pinMode(REVERSE, OUTPUT);
@@ -78,7 +88,6 @@ void loop() {
   powerMotor(manageRide(findAngle()));
   delay(readDelay);
 }
-
 
 /**
  * Use sensor data for overall UX.
@@ -134,7 +143,6 @@ float manageRide(float angle) {
   }
 }
 
-
 /**
  * Send power to motor.
  */
@@ -145,8 +153,11 @@ void powerMotor(float angle) {
     // Find desired voltage.
     float voltage = mapFloat(abs(angle), minPowerAngle, maxPowerAngle, minThrottleVolts, maxThrottleVolts);
 
+    // Allow adjusting power.
+    float powerLimit = map(analogRead(LIMITER), 0, 1063, 0, 1);
+
     // Find PWM output value.
-    analogWrite(THROTTLE, 255 * (voltage / VOLTAGE));
+    analogWrite(THROTTLE, 255 * ((voltage * powerLimit) / VOLTAGE));
 
     // Set reverse.
     if (angle > 1) {
@@ -171,7 +182,6 @@ void powerMotor(float angle) {
   }
 }
 
-
 /**
  * Determine orientation of device.
  */
@@ -182,11 +192,8 @@ float findAngle() {
 
   // The ADXL345 gives 10-bit acceleration values, but they are stored as bytes (8-bits).
   // To get the full value, two bytes must be combined for each axis.
-  // The X value is stored in values[0] and values[1].
   x = ((int)values[1]<<8)|(int)values[0];
-  // The Y value is stored in values[2] and values[3].
-  //y = ((int)values[3]<<8)|(int)values[2];
-  // The Z value is stored in values[4] and values[5].
+  // y = ((int)values[3]<<8)|(int)values[2];
   z = ((int)values[5]<<8)|(int)values[4];
 
   // Calculate angle will be between -360 and 360 degrees.
@@ -194,14 +201,12 @@ float findAngle() {
   return angle;
 }
 
-
 /**
  * Map floats.
  */
 float mapFloat(float x, float inMin, float inMax, float outMin, float outMax) {
   return (x - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;
 }
-
 
 /**
  * Write a value to a register on the ADXL345.
@@ -218,7 +223,6 @@ void writeRegister(char registerAddress, char value) {
   // Signal end of an SPI packet.
   digitalWrite(CS, HIGH);
 }
-
 
 /**
  * Read registers starting from address, store values in buffer.
