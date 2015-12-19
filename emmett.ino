@@ -17,9 +17,9 @@
 // Main adjustments.
 static float minPowerAngle    = 3;
 static float maxPowerAngle    = 20;
-static float powerDelayAngle  = 5;
-static float powerDelay       = 1500;
-static float powerOffDelay    = 4000;
+static float powerDelayAngle  = 9;
+static float powerDelay       = 1000;
+static float powerOffDelay    = 3000;
 static float minThrottleVolts = 0.3;
 static float maxThrottleVolts = 4.7;
 static int   readDelay        = 20;
@@ -51,7 +51,7 @@ static char DATAZ1 = 0x37; //Z-Axis Data 1
 // Internal globals.
 int x,y,z; // Accelerometer axis values.
 unsigned char values[10]; // Buffer for accelerometer values.
-int status = 0; // Current device state.
+int rideStatus = 0; // Current device state.
 unsigned int powerDelayCycles = 0; // Power start counter.
 unsigned int powerOffCycles = 0; // Power off counter.
 
@@ -99,7 +99,7 @@ float manageRide(float angle) {
   float angleSize = abs(angle);
 
   // Already on.
-  if (status == 1) {
+  if (rideStatus == 1) {
     // Within acceleration bounds.
     if (angleSize > minPowerAngle && angleSize < maxPowerAngle) {
       return angle;
@@ -113,7 +113,7 @@ float manageRide(float angle) {
       // Allow turning off for later power delay.
       if (powerOffCycles >= (powerOffDelay / readDelay)) {
         // Begin off state.
-        status = 0;
+        rideStatus = 0;
         powerOffCycles = 0;
         powerDelayCycles = 0;
       }
@@ -127,7 +127,7 @@ float manageRide(float angle) {
     // Allow crossing power delay.
     if (powerDelayCycles >= (powerDelay / readDelay)) {
       // Riding start state.
-      status = 1;
+      rideStatus = 1;
       powerDelayCycles = 0;
       powerOffCycles = 0;
       return angle;
@@ -146,14 +146,14 @@ float manageRide(float angle) {
  * Send power to motor.
  */
 void powerMotor(float angle) {
-  // Avoid computation.
-  if (angle > 0) {
+  // Avoid computation when ride is off.
+  if (angle != 0) {
 
     // Find desired voltage.
     float voltage = mapFloat(abs(angle), minPowerAngle, maxPowerAngle, minThrottleVolts, maxThrottleVolts);
 
     // Allow adjusting power.
-    float powerLimit = map(analogRead(LIMITER), 0, 1063, 0, 1);
+    float powerLimit = 1.0; //map(analogRead(LIMITER), 0, 1063, 0, 1);
 
     // Find PWM output value.
     analogWrite(THROTTLE, 255 * ((voltage * powerLimit) / VOLTAGE));
@@ -171,13 +171,15 @@ void powerMotor(float angle) {
     // Serial.print(" -- ");
     Serial.print(voltage);
     Serial.print("v -- ");
-    Serial.println(!!(angle > 1));
+    Serial.print(!!(angle > 1));
     Serial.print(" ----- ");
-    Serial.print(status);
+    Serial.println(rideStatus);
   }
   else {
     // Debugging.
-    Serial.println("OFF");
+    Serial.print("OFF");
+    Serial.print(" ----- ");
+    Serial.println(rideStatus);
   }
 }
 
