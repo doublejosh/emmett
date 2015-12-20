@@ -5,7 +5,7 @@
  *   \___  >__|_|  /__|_|  /\___  >__|  |__|
  *       \/      \/      \/     \/
  * Emmett -- diy one-wheel, motion control, electric skateboard.
- * v0.0.3
+ * v0.1.0
  *
  * Arduino: Leonardo
  * Accelerometer: ADXL345
