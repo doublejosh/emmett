@@ -21,7 +21,7 @@ float powerDelayAngle  = 9;
 float powerDelay       = 1000;
 float powerOffDelay    = 3000;
 float minThrottleVolts = 0.3;
-float maxTiltAngle     = 15;
+float maxTiltAngle     = 33;
 float maxThrottleVolts = 4.7;
 int   readDelay        = 20;
 
@@ -54,7 +54,7 @@ char DATAZ1 = 0x37; //Z-Axis Data 1
 //char DATAZ1 = 0xB7; //Z-Axis Data 1
 
 // Internal globals.
-int x,y,z; // Accelerometer axis values.
+int x, y, z; // Accelerometer axis values.
 unsigned char values[10]; // Buffer for accelerometer values.
 int rideStatus = 0; // Current device state.
 unsigned int powerDelayCycles = 0; // Power start counter.
@@ -111,7 +111,8 @@ float manageRide(float *data) {
 
   // Shut down when tilted out-of-bounds.
   if (abs(data[1]) > maxTiltAngle) {
-    rideStatus == 0;
+    Serial.print("TILT! -- ");
+    rideStatus = 0;
   }
 
   // Already on.
@@ -184,15 +185,15 @@ void powerMotor(float angle) {
 
     // Debugging.
     Serial.print(voltage);
-    Serial.print("v -- ");
+    Serial.print("v -- direction: ");
     Serial.print(!!(angle > 1));
-    Serial.print(" -- ");
+    Serial.print(" -- status: ");
     Serial.println(rideStatus);
   }
   else {
     // Debugging.
     Serial.print("OFF");
-    Serial.print(" ----- ");
+    Serial.print(" ----- status: ");
     Serial.println(rideStatus);
   }
 }
