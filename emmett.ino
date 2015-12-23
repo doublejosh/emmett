@@ -20,8 +20,8 @@ float maxPowerAngle    = 20;
 float powerDelayAngle  = 9;
 float powerDelay       = 1000;
 float powerOffDelay    = 3000;
-float minThrottleVolts = 0.3;
 float maxTiltAngle     = 33;
+float minThrottleVolts = 0.3;
 float maxThrottleVolts = 4.7;
 int   readDelay        = 20;
 
