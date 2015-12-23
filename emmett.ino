@@ -5,7 +5,7 @@
  *   \___  >__|_|  /__|_|  /\___  >__|  |__|
  *       \/      \/      \/     \/
  * Emmett -- diy one-wheel, motion control, electric skateboard.
- * v0.1.0
+ * v0.1.1
  *
  * Arduino: Leonardo
  * Accelerometer: ADXL345
@@ -15,38 +15,43 @@
 #include <SPI.h>
 
 // Main adjustments.
-static float minPowerAngle    = 3;
-static float maxPowerAngle    = 20;
-static float powerDelayAngle  = 9;
-static float powerDelay       = 1000;
-static float powerOffDelay    = 3000;
-static float minThrottleVolts = 0.3;
-static float maxThrottleVolts = 4.7;
-static int   readDelay        = 20;
+float minPowerAngle    = 3;
+float maxPowerAngle    = 20;
+float powerDelayAngle  = 9;
+float powerDelay       = 1000;
+float powerOffDelay    = 3000;
+float minThrottleVolts = 0.3;
+float maxTiltAngle     = 15;
+float maxThrottleVolts = 4.7;
+int   readDelay        = 20;
+
+// Setup for Trinket (Adafruit micro-Arduino).
+//#if defined (__AVR_ATtiny85__)
+//#endif
 
 // Pin configurations.
-unsigned static int CS       = 8; // Chip Select signal pin.
-unsigned static int REVERSE  = 5; // Reverse relay pin.
-unsigned static int THROTTLE = 3; // Throttle control pin.
-unsigned static int LIMITER  = 1; // Power limiter.
-static float        VOLTAGE  = 5; // Arduino voltage.
+unsigned int CS       = 8; // Chip Select signal pin.
+unsigned int REVERSE  = 5; // Reverse relay pin.
+unsigned int THROTTLE = A1; // Throttle control pin.
+unsigned int LIMITER  = 1; // Power limiter.
+       float VOLTAGE  = 5; // Arduino voltage.
 
 // ADXL345 registers.
-static char POWER_CTL = 0x2D;
-static char DATA_FORMAT = 0x31;
-static char DATAX0 = 0x32; //X-Axis Data 0
-static char DATAX1 = 0x33; //X-Axis Data 1
-static char DATAY0 = 0x34; //Y-Axis Data 0
-static char DATAY1 = 0x35; //Y-Axis Data 1
-static char DATAZ0 = 0x36; //Z-Axis Data 0
-static char DATAZ1 = 0x37; //Z-Axis Data 1
+char POWER_CTL = 0x2D;
+char DATA_FORMAT = 0x31;
+char DATAX0 = 0x32; //X-Axis Data 0
+char DATAX1 = 0x33; //X-Axis Data 1
+char DATAY0 = 0x34; //Y-Axis Data 0
+char DATAY1 = 0x35; //Y-Axis Data 1
+char DATAZ0 = 0x36; //Z-Axis Data 0
+char DATAZ1 = 0x37; //Z-Axis Data 1
 // Some Arduinos supposedly require alternate data addresses.
-//static char DATAX0 = 0xB2; //X-Axis Data 0
-//static char DATAX1 = 0xB3; //X-Axis Data 1
-//static char DATAY0 = 0xB4; //Y-Axis Data 0
-//static char DATAY1 = 0xB5; //Y-Axis Data 1
-//static char DATAZ0 = 0xB6; //Z-Axis Data 0
-//static char DATAZ1 = 0xB7; //Z-Axis Data 1
+//char DATAX0 = 0xB2; //X-Axis Data 0
+//char DATAX1 = 0xB3; //X-Axis Data 1
+//char DATAY0 = 0xB4; //Y-Axis Data 0
+//char DATAY1 = 0xB5; //Y-Axis Data 1
+//char DATAZ0 = 0xB6; //Z-Axis Data 0
+//char DATAZ1 = 0xB7; //Z-Axis Data 1
 
 // Internal globals.
 int x,y,z; // Accelerometer axis values.
@@ -54,6 +59,7 @@ unsigned char values[10]; // Buffer for accelerometer values.
 int rideStatus = 0; // Current device state.
 unsigned int powerDelayCycles = 0; // Power start counter.
 unsigned int powerOffCycles = 0; // Power off counter.
+float data[2]; // Processed sensor data for application consumption.
 
 // Statup.
 void setup() {
@@ -70,6 +76,9 @@ void setup() {
 
   // Setup motor limiter.
   pinMode(LIMITER, INPUT);
+  
+  // Set the motor speed throttle via PWM.
+  pinMode(THROTTLE, OUTPUT);
 
   // Set the reverse relay for output.
   pinMode(REVERSE, OUTPUT);
@@ -84,7 +93,7 @@ void setup() {
 
 // Continue.
 void loop() {
-  powerMotor(manageRide(findAngle()));
+  powerMotor(manageRide(findAngles(data)));
   delay(readDelay);
 }
 
@@ -95,8 +104,15 @@ void loop() {
  * 1 = on
  * ...more to come.
  */
-float manageRide(float angle) {
+float manageRide(float *data) {
+  float angle = data[0];
   float angleSize = abs(angle);
+  float tilt =  abs(data[1]);
+
+  // Shut down when tilted out-of-bounds.
+  if (abs(data[1]) > maxTiltAngle) {
+    rideStatus == 0;
+  }
 
   // Already on.
   if (rideStatus == 1) {
@@ -143,7 +159,7 @@ float manageRide(float angle) {
 }
 
 /**
- * Send power to motor.
+ * Send power to motor. 0  = off, >0 = ride angle
  */
 void powerMotor(float angle) {
   // Avoid computation when ride is off.
@@ -153,7 +169,7 @@ void powerMotor(float angle) {
     float voltage = mapFloat(abs(angle), minPowerAngle, maxPowerAngle, minThrottleVolts, maxThrottleVolts);
 
     // Allow adjusting power.
-    float powerLimit = 1.0; //map(analogRead(LIMITER), 0, 1063, 0, 1);
+    float powerLimit = map(analogRead(LIMITER), 0, 1063, 0, 1.0);
 
     // Find PWM output value.
     analogWrite(THROTTLE, 255 * ((voltage * powerLimit) / VOLTAGE));
@@ -167,12 +183,10 @@ void powerMotor(float angle) {
     }
 
     // Debugging.
-    // Serial.print(angle);
-    // Serial.print(" -- ");
     Serial.print(voltage);
     Serial.print("v -- ");
     Serial.print(!!(angle > 1));
-    Serial.print(" ----- ");
+    Serial.print(" -- ");
     Serial.println(rideStatus);
   }
   else {
@@ -186,20 +200,24 @@ void powerMotor(float angle) {
 /**
  * Determine orientation of device.
  */
-float findAngle() {
+float* findAngles(float *data) {
   // Reading 6 bytes of data starting at register DATAX0 will retrieve the x,y and z acceleration values
   // from the ADXL345. The results of the read operation will get stored to the values[] buffer.
   readRegister(DATAX0, 6, values);
 
   // The ADXL345 gives 10-bit acceleration values, but they are stored as bytes (8-bits).
   // To get the full value, two bytes must be combined for each axis.
-  x = ((int)values[1]<<8)|(int)values[0];
-  // y = ((int)values[3]<<8)|(int)values[2];
-  z = ((int)values[5]<<8)|(int)values[4];
+  x = ((int)values[1]<<8) | (int)values[0];
+  y = ((int)values[3]<<8) | (int)values[2];
+  z = ((int)values[5]<<8) | (int)values[4];
 
   // Calculate angle will be between -360 and 360 degrees.
-  float angle = atan2(x, z) * 180.0f / M_PI;
-  return angle;
+  data[0] = atan2(x, z) * 180.0f / M_PI;
+
+  // Calculate tilt for out-of-bounds/crash sensing.
+  data[1] = atan2(y, z) * 180.0f / M_PI;
+
+  return data;
 }
 
 /**
