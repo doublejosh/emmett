@@ -32,7 +32,7 @@ int   readDelay        = 20;
 // Pin configurations.
 unsigned int CS       = 8; // Chip Select signal pin.
 unsigned int REVERSE  = 5; // Reverse relay pin.
-unsigned int THROTTLE = A1; // Throttle control pin.
+unsigned int THROTTLE = 3; // Throttle control pin.
 unsigned int LIMITER  = 1; // Power limiter.
        float VOLTAGE  = 5; // Arduino voltage.
 
@@ -113,6 +113,10 @@ float manageRide(float *data) {
   if (abs(data[1]) > maxTiltAngle) {
     Serial.print("TILT! -- ");
     rideStatus = 0;
+    // @todo Duplicated.
+    powerOffCycles = 0;
+    powerDelayCycles = 0;
+    return 0;
   }
 
   // Already on.
@@ -170,10 +174,10 @@ void powerMotor(float angle) {
     float voltage = mapFloat(abs(angle), minPowerAngle, maxPowerAngle, minThrottleVolts, maxThrottleVolts);
 
     // Allow adjusting power.
-    float powerLimit = map(analogRead(LIMITER), 0, 1063, 0, 1.0);
+    float powerLimit = 1.0; //map(analogRead(LIMITER), 0, 1063, 0, 1.0);
 
     // Find PWM output value.
-    analogWrite(THROTTLE, 255 * ((voltage * powerLimit) / VOLTAGE));
+    analogWrite(THROTTLE, map(voltage * powerLimit, 0, VOLTAGE, 0, 255));
 
     // Set reverse.
     if (angle > 1) {
@@ -191,6 +195,9 @@ void powerMotor(float angle) {
     Serial.println(rideStatus);
   }
   else {
+    // Ouput PWM off.
+    analogWrite(THROTTLE, LOW);
+    
     // Debugging.
     Serial.print("OFF");
     Serial.print(" ----- status: ");
