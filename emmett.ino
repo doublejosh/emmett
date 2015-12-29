@@ -4,8 +4,8 @@
  *  \  ___/|  Y Y  \  Y Y  \  ___/|  |  |  |
  *   \___  >__|_|  /__|_|  /\___  >__|  |__|
  *       \/      \/      \/     \/
- * Emmett -- diy one-wheel, motion control, electric skateboard.
- * v0.1.1
+ * openEmmett -- diy one-wheel, self-balancing, electric skateboard. AKA open-source hoverboard.
+ * v0.1.2
  *
  * Arduino: Leonardo
  * Accelerometer: ADXL345
