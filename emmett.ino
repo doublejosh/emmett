@@ -15,14 +15,14 @@
 #include <SPI.h>
 
 // Main adjustments.
-float minPowerAngle    = 3;
+float minPowerAngle    = 2;
 float maxPowerAngle    = 20;
 float powerDelayAngle  = 9;
 float powerDelay       = 1000;
 float powerOffDelay    = 3000;
 float maxTiltAngle     = 33;
-float minThrottleVolts = 0.3;
-float maxThrottleVolts = 4.7;
+float minThrottleVolts = 2;
+float maxThrottleVolts = 5;
 int   readDelay        = 20;
 
 // Setup for Trinket (Adafruit micro-Arduino).
