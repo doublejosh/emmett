@@ -24,6 +24,7 @@ float maxTiltAngle     = 33;
 float minThrottleVolts = 2;
 float maxThrottleVolts = 5;
 int   readDelay        = 10;
+boolean debugging      = false;
 
 // Setup for Trinket (Adafruit micro-Arduino).
 //#if defined (__AVR_ATtiny85__)
@@ -68,7 +69,9 @@ void setup() {
   SPI.setDataMode(SPI_MODE3);
 
   // Create a serial connection for debugging.
-  Serial.begin(9600);
+  if (debugging) {
+    Serial.begin(9600);
+  }
 
   // Set the Chip Select for output.
   pinMode(CS, OUTPUT);
@@ -111,7 +114,9 @@ float manageRide(float *data) {
 
   // Shut down when tilted out-of-bounds.
   if (abs(data[1]) > maxTiltAngle) {
-    Serial.print("TILT! -- ");
+    if (debugging) {
+      Serial.print("TILT! -- ");
+    }
     rideStatus = 0;
     // @todo Duplicated.
     powerOffCycles = 0;
@@ -188,20 +193,24 @@ void powerMotor(float angle) {
     }
 
     // Debugging.
-    Serial.print(voltage);
-    Serial.print("v -- direction: ");
-    Serial.print(!!(angle > 1));
-    Serial.print(" -- status: ");
-    Serial.println(rideStatus);
+    if (debugging) {
+      Serial.print(voltage);
+      Serial.print("v -- direction: ");
+      Serial.print(!!(angle > 1));
+      Serial.print(" -- status: ");
+      Serial.println(rideStatus);
+    }
   }
   else {
     // Ouput PWM off.
     analogWrite(THROTTLE, LOW);
     
     // Debugging.
-    Serial.print("OFF");
-    Serial.print(" ----- status: ");
-    Serial.println(rideStatus);
+    if (debugging) {
+      Serial.print("OFF");
+      Serial.print(" ----- status: ");
+      Serial.println(rideStatus);
+    }
   }
 }
 
