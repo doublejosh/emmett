@@ -23,7 +23,7 @@ float powerOffDelay    = 3000;
 float maxTiltAngle     = 33;
 float minThrottleVolts = 2;
 float maxThrottleVolts = 5;
-int   readDelay        = 20;
+int   readDelay        = 10;
 
 // Setup for Trinket (Adafruit micro-Arduino).
 //#if defined (__AVR_ATtiny85__)
