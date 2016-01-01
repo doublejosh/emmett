@@ -4,7 +4,9 @@
  *  \  ___/|  Y Y  \  Y Y  \  ___/|  |  |  |
  *   \___  >__|_|  /__|_|  /\___  >__|  |__|
  *       \/      \/      \/     \/
- * openEmmett -- diy one-wheel, self-balancing, electric skateboard. AKA open-source hoverboard.
+ * openEmmett
+ * DIY one-wheel, self-balancing, electric skateboard. AKA open-source hoverboard.
+ * https://github.com/doublejosh/emmett
  * v0.1.2
  *
  * Arduino: Leonardo
@@ -15,18 +17,19 @@
 #include <SPI.h>
 
 // Main adjustments.
-float minPowerAngle    = 2;
-float maxPowerAngle    = 20;
+float minPowerAngle    = 1;
+float maxPowerAngle    = 22;
 float powerDelayAngle  = 9;
 float powerDelay       = 1000;
 float powerOffDelay    = 3000;
 float maxTiltAngle     = 33;
-float minThrottleVolts = 2;
+float minThrottleVolts = 1.5;
 float maxThrottleVolts = 5;
 int   readDelay        = 10;
+
 boolean debugging      = false;
 
-// Setup for Trinket (Adafruit micro-Arduino).
+// Setup alternate pins for Trinket (Adafruit micro-Arduino).
 //#if defined (__AVR_ATtiny85__)
 //#endif
 
@@ -35,7 +38,7 @@ unsigned int CS       = 8; // Chip Select signal pin.
 unsigned int REVERSE  = 5; // Reverse relay pin.
 unsigned int THROTTLE = 3; // Throttle control pin.
 unsigned int LIMITER  = 1; // Power limiter.
-       float VOLTAGE  = 5; // Arduino voltage.
+float        VOLTAGE  = 5; // Arduino voltage.
 
 // ADXL345 registers.
 char POWER_CTL = 0x2D;
