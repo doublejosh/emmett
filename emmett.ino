@@ -7,9 +7,9 @@
  * openEmmett
  * DIY one-wheel, self-balancing, electric skateboard. AKA open-source hoverboard.
  * https://github.com/doublejosh/emmett
- * v0.1.2
+ * v0.1.3
  *
- * Arduino: Leonardo
+ * Arduinos tested: Leonardo, Nano
  * Accelerometer: ADXL345
  */
 
@@ -17,45 +17,47 @@
 #include <SPI.h>
 
 // Main adjustments.
-float minPowerAngle    = 1;
-float maxPowerAngle    = 22;
-float powerDelayAngle  = 9;
-float powerDelay       = 1000;
-float powerOffDelay    = 3000;
-float maxTiltAngle     = 33;
-float minThrottleVolts = 1.5;
-float maxThrottleVolts = 5;
-int   readDelay        = 10;
+const float minPowerAngle    = 3;
+const float maxPowerAngle    = 16;
+const float powerDelayAngle  = 9;
+const float powerDelay       = 100; // @todo Switch to time.
+const float powerOffDelay    = 300;
+const float maxTiltAngle     = 33;
+const float minThrottleVolts = 1.5;
+const float maxThrottleVolts = 5;
+const float pitchAdjust      = -48.45;
+const float rollAdjust       = -3.48;
+const unsigned int readDelay = 10;
 
-boolean debugging      = false;
+const boolean debugging      = true;
 
 // Setup alternate pins for Trinket (Adafruit micro-Arduino).
 //#if defined (__AVR_ATtiny85__)
 //#endif
 
 // Pin configurations.
-unsigned int CS       = 8; // Chip Select signal pin.
-unsigned int REVERSE  = 5; // Reverse relay pin.
-unsigned int THROTTLE = 3; // Throttle control pin.
-unsigned int LIMITER  = 1; // Power limiter.
-float        VOLTAGE  = 5; // Arduino voltage.
+const unsigned int CS       = 3; // Chip Select signal pin.
+const unsigned int THROTTLE = 2; // Throttle control pin.
+const unsigned int REVERSE  = 4; // Reverse relay pin.
+const unsigned int LIMITER  = 1; // Power limiter.
 
 // ADXL345 registers.
-char POWER_CTL = 0x2D;
-char DATA_FORMAT = 0x31;
-char DATAX0 = 0x32; //X-Axis Data 0
-char DATAX1 = 0x33; //X-Axis Data 1
-char DATAY0 = 0x34; //Y-Axis Data 0
-char DATAY1 = 0x35; //Y-Axis Data 1
-char DATAZ0 = 0x36; //Z-Axis Data 0
-char DATAZ1 = 0x37; //Z-Axis Data 1
+const char POWER_CTL = 0x2D;
+const char DATA_FORMAT = 0x31;
+//const char DATAX0 = 0x32; //X-Axis Data 0
+//const char DATAX1 = 0x33; //X-Axis Data 1
+//const char DATAY0 = 0x34; //Y-Axis Data 0
+//const char DATAY1 = 0x35; //Y-Axis Data 1
+//const char DATAZ0 = 0x36; //Z-Axis Data 0
+//const char DATAZ1 = 0x37; //Z-Axis Data 1
 // Some Arduinos supposedly require alternate data addresses.
-//char DATAX0 = 0xB2; //X-Axis Data 0
-//char DATAX1 = 0xB3; //X-Axis Data 1
-//char DATAY0 = 0xB4; //Y-Axis Data 0
-//char DATAY1 = 0xB5; //Y-Axis Data 1
-//char DATAZ0 = 0xB6; //Z-Axis Data 0
-//char DATAZ1 = 0xB7; //Z-Axis Data 1
+const char DATAX0 = 0xB2; //X-Axis Data 0
+const char DATAX1 = 0xB3; //X-Axis Data 1
+const char DATAY0 = 0xB4; //Y-Axis Data 0
+const char DATAY1 = 0xB5; //Y-Axis Data 1
+const char DATAZ0 = 0xB6; //Z-Axis Data 0
+const char DATAZ1 = 0xB7; //Z-Axis Data 1
+const float VOLTAGE  = 5; // Arduino voltage.
 
 // Internal globals.
 int x, y, z; // Accelerometer axis values.
@@ -64,6 +66,8 @@ int rideStatus = 0; // Current device state.
 unsigned int powerDelayCycles = 0; // Power start counter.
 unsigned int powerOffCycles = 0; // Power off counter.
 float data[2]; // Processed sensor data for application consumption.
+unsigned long previousMillis = 0; // Store time.
+const unsigned long LONG_RESET = 2147483000; // Careful with variable value.
 
 // Statup.
 void setup() {
@@ -99,6 +103,18 @@ void setup() {
 
 // Continue.
 void loop() {
+//  unsigned long currentMillis = millis();
+//  
+//  // Time difference.
+//  if (currentMillis - previousMillis >= interval) {
+//    // Save time.
+//    previousMillis = currentMillis;
+//
+//  }
+//  if (previousMillis >= LONG_RESET) {
+//    previousMillis = 0;
+//  }
+
   powerMotor(manageRide(findAngles(data)));
   delay(readDelay);
 }
@@ -113,7 +129,6 @@ void loop() {
 float manageRide(float *data) {
   float angle = data[0];
   float angleSize = abs(angle);
-  float tilt =  abs(data[1]);
 
   // Shut down when tilted out-of-bounds.
   if (abs(data[1]) > maxTiltAngle) {
@@ -152,6 +167,16 @@ float manageRide(float *data) {
   }
   else if (angleSize < powerDelayAngle) {
     // Off, but level enough to start...
+
+    if (debugging) {
+      Serial.print(" --- [ ");
+      Serial.print(powerDelayCycles);
+      Serial.print(" | ");
+      Serial.print(powerDelay);
+      Serial.print(" | ");
+      Serial.print(readDelay);
+      Serial.print(" ]");
+    }
 
     // Allow crossing power delay.
     if (powerDelayCycles >= (powerDelay / readDelay)) {
@@ -197,9 +222,10 @@ void powerMotor(float angle) {
 
     // Debugging.
     if (debugging) {
+      Serial.print(" ");
       Serial.print(voltage);
-      Serial.print("v -- direction: ");
-      Serial.print(!!(angle > 1));
+      Serial.print("v -- angle: ");
+      Serial.print(angle);
       Serial.print(" -- status: ");
       Serial.println(rideStatus);
     }
@@ -207,8 +233,7 @@ void powerMotor(float angle) {
   else {
     // Ouput PWM off.
     analogWrite(THROTTLE, LOW);
-    
-    // Debugging.
+
     if (debugging) {
       Serial.print("OFF");
       Serial.print(" ----- status: ");
@@ -232,10 +257,26 @@ float* findAngles(float *data) {
   z = ((int)values[5]<<8) | (int)values[4];
 
   // Calculate angle will be between -360 and 360 degrees.
-  data[0] = atan2(x, z) * 180.0f / M_PI;
+  //data[0] = atan2(x, z) * 180.0f / M_PI;
+  data[0] = (atan2((- x) , sqrt(y * y + z * z)) * 57.3) + pitchAdjust;
 
   // Calculate tilt for out-of-bounds/crash sensing.
-  data[1] = atan2(y, z) * 180.0f / M_PI;
+  //data[1] = atan2(y, z) * 180.0f / M_PI;
+  data[1] = (atan2(y , z) * 57.3) + rollAdjust;
+
+  if (debugging) {
+    Serial.print(x);
+    Serial.print(", ");
+    Serial.print(y);
+    Serial.print(", ");
+    Serial.print(z);
+
+    Serial.print(" Pitch: ");
+    Serial.print(data[0]);
+    Serial.print(" - Roll: ");
+    Serial.print(data[1]); 
+    Serial.print(" - ");
+  }
 
   return data;
 }
