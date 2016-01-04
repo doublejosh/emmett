@@ -7,7 +7,7 @@
  * openEmmett
  * DIY one-wheel, self-balancing, electric skateboard. AKA open-source hoverboard.
  * https://github.com/doublejosh/emmett
- * v0.1.3
+ * v0.1.4
  *
  * Arduinos tested: Leonardo, Nano
  * Accelerometer: ADXL345
@@ -17,17 +17,18 @@
 #include <SPI.h>
 
 // Main adjustments.
-const float minPowerAngle    = 3;
-const float maxPowerAngle    = 16;
+const float minPowerAngle    = 2;
+const float maxPowerAngle    = 26;
 const float powerDelayAngle  = 9;
-const float powerDelay       = 100; // @todo Switch to time.
-const float powerOffDelay    = 300;
+const float powerDelay       = 20; // @todo Switch to time.
+const float powerOffDelay    = 60;
 const float maxTiltAngle     = 33;
-const float minThrottleVolts = 1.5;
-const float maxThrottleVolts = 5;
-const float pitchAdjust      = -48.45;
-const float rollAdjust       = -3.48;
-const unsigned int readDelay = 10;
+const float minThrottleVolts = 2;
+const float maxThrottleVolts = 2.55;
+const float angleAdjust      = 0.6;
+const float tiltAdjust       = -4.09;
+const float pwmAdjust        = 0;
+const unsigned int readDelay = 1;
 
 const boolean debugging      = true;
 
@@ -36,10 +37,13 @@ const boolean debugging      = true;
 //#endif
 
 // Pin configurations.
-const unsigned int CS       = 3; // Chip Select signal pin.
-const unsigned int THROTTLE = 2; // Throttle control pin.
+const unsigned int THROTTLE = 5; // Throttle control pin.
 const unsigned int REVERSE  = 4; // Reverse relay pin.
 const unsigned int LIMITER  = 1; // Power limiter.
+const unsigned int CS       = 3; // Chip Select signal pin.
+// SCK -> SCL
+// MISO -> SDO
+// MOSI -> SDA
 
 // ADXL345 registers.
 const char POWER_CTL = 0x2D;
@@ -57,17 +61,21 @@ const char DATAY0 = 0xB4; //Y-Axis Data 0
 const char DATAY1 = 0xB5; //Y-Axis Data 1
 const char DATAZ0 = 0xB6; //Z-Axis Data 0
 const char DATAZ1 = 0xB7; //Z-Axis Data 1
-const float VOLTAGE  = 5; // Arduino voltage.
+const float BOARD_VOLTAGE  = 5; // Arduino voltage.
+const int SERIAL_RATE = 19200; //115200; //9600;
 
 // Internal globals.
 int x, y, z; // Accelerometer axis values.
 unsigned char values[10]; // Buffer for accelerometer values.
+float angles[5]; // Rolling average.
+unsigned int readIndex = 0; // Floating average sensor angle.
 int rideStatus = 0; // Current device state.
 unsigned int powerDelayCycles = 0; // Power start counter.
 unsigned int powerOffCycles = 0; // Power off counter.
 float data[2]; // Processed sensor data for application consumption.
 unsigned long previousMillis = 0; // Store time.
 const unsigned long LONG_RESET = 2147483000; // Careful with variable value.
+
 
 // Statup.
 void setup() {
@@ -77,7 +85,7 @@ void setup() {
 
   // Create a serial connection for debugging.
   if (debugging) {
-    Serial.begin(9600);
+    Serial.begin(SERIAL_RATE);
   }
 
   // Set the Chip Select for output.
@@ -118,6 +126,7 @@ void loop() {
   powerMotor(manageRide(findAngles(data)));
   delay(readDelay);
 }
+
 
 /**
  * Use sensor data for overall UX.
@@ -210,7 +219,9 @@ void powerMotor(float angle) {
     float powerLimit = 1.0; //map(analogRead(LIMITER), 0, 1063, 0, 1.0);
 
     // Find PWM output value.
-    analogWrite(THROTTLE, map(voltage * powerLimit, 0, VOLTAGE, 0, 255));
+    // @todo Use power limiter, powerLimit.
+    float pwm = (255 * (voltage / BOARD_VOLTAGE)) + pwmAdjust;
+    analogWrite(THROTTLE, pwm);
 
     // Set reverse.
     if (angle > 1) {
@@ -222,6 +233,8 @@ void powerMotor(float angle) {
 
     // Debugging.
     if (debugging) {
+      Serial.print(" PWM: ");
+      Serial.print(pwm);
       Serial.print(" ");
       Serial.print(voltage);
       Serial.print("v -- angle: ");
@@ -256,13 +269,24 @@ float* findAngles(float *data) {
   y = ((int)values[3]<<8) | (int)values[2];
   z = ((int)values[5]<<8) | (int)values[4];
 
-  // Calculate angle will be between -360 and 360 degrees.
-  //data[0] = atan2(x, z) * 180.0f / M_PI;
-  data[0] = (atan2((- x) , sqrt(y * y + z * z)) * 57.3) + pitchAdjust;
+  // Calculate and angle between -360 and 360.
+  // = atan2(x, z) * 180.0f / M_PI;
+  // Overwrite new value.
+  angles[readIndex] = (atan2((- x) , sqrt(y * y + z * z)) * 57.3) + angleAdjust;
+  // Use average.
+  data[0] = (angles[0] + angles[1] + angles[2] + angles[3] + angles[4]) / 5;
+  readIndex++;
+  if (readIndex >= 5) {
+    readIndex = 0;
+  }
 
   // Calculate tilt for out-of-bounds/crash sensing.
   //data[1] = atan2(y, z) * 180.0f / M_PI;
-  data[1] = (atan2(y , z) * 57.3) + rollAdjust;
+  data[1] = (atan2(y , z) * 57.3) + tiltAdjust;
+
+  // Filter data (alternate sensor filter option).
+  //  xf = FILTER_TIME * xf + (1.0 - FILTER_TIME) * x;
+  //  yf = FILTER_TIME * yf + (1.0 - FILTER_TIME) * y;
 
   if (debugging) {
     Serial.print(x);
