@@ -7,14 +7,15 @@
  * openEmmett
  * DIY one-wheel, self-balancing, electric skateboard. AKA open-source hoverboard.
  * https://github.com/doublejosh/emmett
- * v0.1.4
+ * v0.2.0
  *
- * Arduinos tested: Leonardo, Nano
+ * Arduinos tested: Leonardo, Nano, Pro Mini
  * Accelerometer: ADXL345
  */
 
 // Communicate with the sensor.
-#include <SPI.h>
+//#include <SPI.h>
+#include <Wire.h>
 
 // Main adjustments.
 const float minPowerAngle    = 2;
@@ -28,7 +29,7 @@ const float maxThrottleVolts = 2.55;
 const float angleAdjust      = 0.6;
 const float tiltAdjust       = -4.09;
 const float pwmAdjust        = 0;
-const unsigned int readDelay = 1;
+const unsigned int readDelay = 10;
 
 const boolean debugging      = true;
 
@@ -37,76 +38,81 @@ const boolean debugging      = true;
 //#endif
 
 // Pin configurations.
-const unsigned int THROTTLE = 5; // Throttle control pin.
-const unsigned int REVERSE  = 4; // Reverse relay pin.
+const unsigned int THROTTLE = 5; // Throttle control.
+const unsigned int REVERSE  = 4; // Reverse relay.
 const unsigned int LIMITER  = 1; // Power limiter.
-const unsigned int CS       = 3; // Chip Select signal pin.
-// SCK -> SCL
-// MISO -> SDO
-// MOSI -> SDA
+//const unsigned int SPI_CS   = -1; // SPI chip select signal pin.
 
-// ADXL345 registers.
-const char POWER_CTL = 0x2D;
-const char DATA_FORMAT = 0x31;
-//const char DATAX0 = 0x32; //X-Axis Data 0
-//const char DATAX1 = 0x33; //X-Axis Data 1
-//const char DATAY0 = 0x34; //Y-Axis Data 0
-//const char DATAY1 = 0x35; //Y-Axis Data 1
-//const char DATAZ0 = 0x36; //Z-Axis Data 0
-//const char DATAZ1 = 0x37; //Z-Axis Data 1
-// Some Arduinos supposedly require alternate data addresses.
-const char DATAX0 = 0xB2; //X-Axis Data 0
-const char DATAX1 = 0xB3; //X-Axis Data 1
-const char DATAY0 = 0xB4; //Y-Axis Data 0
-const char DATAY1 = 0xB5; //Y-Axis Data 1
-const char DATAZ0 = 0xB6; //Z-Axis Data 0
-const char DATAZ1 = 0xB7; //Z-Axis Data 1
-const float BOARD_VOLTAGE  = 5; // Arduino voltage.
-const int SERIAL_RATE = 19200; //115200; //9600;
+const float         BOARD_VOLTAGE = 5; // Arduino voltage.
+const unsigned int  BYTES_ACCEL   = 6; // Bytes to read from accelerometer.
+const unsigned long LONG_RESET    = 2147483000; // Careful with variable value.
 
 // Internal globals.
-int x, y, z; // Accelerometer axis values.
-unsigned char values[10]; // Buffer for accelerometer values.
-float angles[5]; // Rolling average.
-unsigned int readIndex = 0; // Floating average sensor angle.
-int rideStatus = 0; // Current device state.
-unsigned int powerDelayCycles = 0; // Power start counter.
-unsigned int powerOffCycles = 0; // Power off counter.
-float data[2]; // Processed sensor data for application consumption.
-unsigned long previousMillis = 0; // Store time.
-const unsigned long LONG_RESET = 2147483000; // Careful with variable value.
+float         angles[5]; // Rolling average.
+unsigned int  readIndex = 0; // Floating average sensor angle.
+int           rideStatus = 0; // Current device state.
+unsigned int  powerDelayCycles = 0; // Power start counter.
+unsigned int  powerOffCycles = 0; // Power off counter.
+float         data[2]; // Processed sensor data for application consumption.
+//unsigned long previousMillis = 0; // Store time.
+
+// Buffer for i2c.
+byte values[BYTES_ACCEL];
+// Buffer for SPI.
+//unsigned char values[BYTES_ACCEL + 4];
+
+// SPI: SCK -> SCL, MISO -> SDO, MOSI -> SDA
+// i2c: A4 = SDA, A5 = SLC.
+
+// i2c ADXL345 device address (from data sheet).
+#define I2C_ACC_ADDRESS (0x53)
+
+// ADXL345 registers.
+const char DATAX0 = 0x32; //X-Axis Data 0
+const char DATAX1 = 0x33; //X-Axis Data 1
+const char DATAY0 = 0x34; //Y-Axis Data 0
+const char DATAY1 = 0x35; //Y-Axis Data 1
+const char DATAZ0 = 0x36; //Z-Axis Data 0
+const char DATAZ1 = 0x37; //Z-Axis Data 1
+// Some Arduinos supposedly require alternate data addresses.
+//const char DATAX0 = 0xB2; //X-Axis Data 0
+//const char DATAX1 = 0xB3; //X-Axis Data 1
+//const char DATAY0 = 0xB4; //Y-Axis Data 0
+//const char DATAY1 = 0xB5; //Y-Axis Data 1
+//const char DATAZ0 = 0xB6; //Z-Axis Data 0
+//const char DATAZ1 = 0xB7; //Z-Axis Data 1
 
 
 // Statup.
 void setup() {
-  // Initiate and configure the SPI communication.
-  SPI.begin();
-  SPI.setDataMode(SPI_MODE3);
+  // Initiate/config communication.
+  Wire.begin();
+//  SPI.begin();
+//  SPI.setDataMode(SPI_MODE3);
+//  // Set the chip select for output.
+//  pinMode(SPI_CS, OUTPUT);
+//  digitalWrite(SPI_CS, HIGH);
 
-  // Create a serial connection for debugging.
   if (debugging) {
-    Serial.begin(SERIAL_RATE);
+    Serial.begin(19200);
   }
-
-  // Set the Chip Select for output.
-  pinMode(CS, OUTPUT);
-  digitalWrite(CS, HIGH);
 
   // Setup motor limiter.
   pinMode(LIMITER, INPUT);
-  
   // Set the motor speed throttle via PWM.
   pinMode(THROTTLE, OUTPUT);
-
   // Set the reverse relay for output.
   pinMode(REVERSE, OUTPUT);
   digitalWrite(REVERSE, LOW);
 
-  // Put ADXL345 into +/- 4G range by writing the value 0x01 to the DATA_FORMAT register.
-  writeRegister(DATA_FORMAT, 0x01);
-
-  //Put the ADXL345 into Measurement Mode by writing 0x08 to the POWER_CTL register.
-  writeRegister(POWER_CTL, 0x08);
+  // Both SPI and i2c need this.
+  // Put ADXL345 into +/- 4G range, write 0x01 to the DATA_FORMAT register.
+  //writeData(I2C_ACC_ADDRESS, 0x31, 0x01);
+  // Put ADXL345 into measurement mode, write 0x08 to the POWER_CTL register.
+  //writeData(I2C_ACC_ADDRESS, 0x2D, 0x08);
+  writeData(I2C_ACC_ADDRESS, 0x2D, 0);
+  writeData(I2C_ACC_ADDRESS, 0x2D, 16);
+  writeData(I2C_ACC_ADDRESS, 0x2D, 8);
 }
 
 // Continue.
@@ -259,17 +265,17 @@ void powerMotor(float angle) {
  * Determine orientation of device.
  */
 float* findAngles(float *data) {
-  // Reading 6 bytes of data starting at register DATAX0 will retrieve the x,y and z acceleration values
-  // from the ADXL345. The results of the read operation will get stored to the values[] buffer.
-  readRegister(DATAX0, 6, values);
+  int x, y, z;
 
+  // Read x,y and z from accelerometerto the values[] buffer.
   // The ADXL345 gives 10-bit acceleration values, but they are stored as bytes (8-bits).
   // To get the full value, two bytes must be combined for each axis.
+  readData(I2C_ACC_ADDRESS, DATAX0, BYTES_ACCEL, values);
   x = ((int)values[1]<<8) | (int)values[0];
   y = ((int)values[3]<<8) | (int)values[2];
   z = ((int)values[5]<<8) | (int)values[4];
 
-  // Calculate and angle between -360 and 360.
+  // Calculate an angle between -360 and 360.
   // = atan2(x, z) * 180.0f / M_PI;
   // Overwrite new value.
   angles[readIndex] = (atan2((- x) , sqrt(y * y + z * z)) * 57.3) + angleAdjust;
@@ -294,7 +300,6 @@ float* findAngles(float *data) {
     Serial.print(y);
     Serial.print(", ");
     Serial.print(z);
-
     Serial.print(" Pitch: ");
     Serial.print(data[0]);
     Serial.print(" - Roll: ");
@@ -313,42 +318,52 @@ float mapFloat(float x, float inMin, float inMax, float outMin, float outMax) {
 }
 
 /**
- * Write a value to a register on the ADXL345.
+ * Write to SPI register.
  *
  * char registerAddress - The register to write a value to
  * char value           - The value to be written to the specified register.
  */
-void writeRegister(char registerAddress, char value) {
-  // Signal beginning of an SPI packet.
-  digitalWrite(CS, LOW);
-  // Transfer the register address, then value.
-  SPI.transfer(registerAddress);
-  SPI.transfer(value);
-  // Signal end of an SPI packet.
-  digitalWrite(CS, HIGH);
+void writeData(int DEVICE, char address, char value) {
+  // Send register address and value.
+  Wire.beginTransmission(DEVICE);
+  Wire.write(address);
+  Wire.write(value);
+  Wire.endTransmission();
+//  digitalWrite(SPI_CS, LOW);
+//  SPI.transfer(address);
+//  SPI.transfer(value);
+//  digitalWrite(SPI_CS, HIGH);
 }
 
 /**
- * Read registers starting from address, store values in buffer.
- *
- * char registerAddress - Register addresses to start the read sequence.
- * int  numBytes        - Number of registers to read.
- * char * values        - Pointer to a buffer where operation results should be stored.
+ * Read data registers into values buffer.
  */
-void readRegister(char registerAddress, int numBytes, unsigned char * values) {
-  // Since we're performing a read operation, the most significant bit of the register address should be set.
-  char address = 0x80 | registerAddress;
-  // If we're doing a multi-byte read, bit 6 needs to be set as well.
-  if (numBytes > 1) address = address | 0x40;
-
-  // Set the Chip select pin low to start an SPI packet.
-  digitalWrite(CS, LOW);
-  // Transfer the starting register address that needs to be read.
-  SPI.transfer(address);
-  // Continue to read registers until we've read the number specified, storing the results to the input buffer.
-  for (int i=0; i<numBytes; i++) {
-    values[i] = SPI.transfer(0x00);
+void readData(int DEVICE, char address, int numBytes, unsigned char * values) {
+  Wire.beginTransmission(DEVICE);
+  Wire.write(address);
+  Wire.endTransmission();
+  Wire.beginTransmission(DEVICE);
+  Wire.requestFrom(DEVICE, numBytes);
+  
+  int i = 0;
+  while (Wire.available()) {
+    values[i] = Wire.read();
+    i++;
   }
-  // Set the Chips Select pin high to end the SPI packet.
-  digitalWrite(CS, HIGH);
+  Wire.endTransmission();
+
+//  // Since we're performing a read operation, the most
+//  // significant bit of the register address should be set.
+//  char address = 0x80 | address;
+//  // If we're doing a multi-byte read, bit 6 needs to be set as well.
+//  if (6 > 1) {
+//    address = address | 0x40;
+//  }
+//  digitalWrite(SPI_CS, LOW);
+//  SPI.transfer(address);
+//  for (int i=0; i<numBytes; i++) {
+//    values[i] = SPI.transfer(0x00);
+//  }
+//  digitalWrite(SPI_CS, HIGH);
 }
+
