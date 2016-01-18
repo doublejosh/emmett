@@ -2,15 +2,16 @@
  *    ____   _____   _____   _____/  |__/  |_
  *  _/ __ \ /     \ /     \_/ __ \   __\   __\
  *  \  ___/|  Y Y  \  Y Y  \  ___/|  |  |  |
- *   \___  >__|_|  /__|_|  /\___  >__|  |__|
- *       \/      \/      \/     \/
+ *   \_____>__|_|  /__|_|  /\_____>__|  |__|
+ *               \/      \/ 
  * openEmmett
  * DIY one-wheel, self-balancing, electric skateboard. AKA open-source hoverboard.
  * https://github.com/doublejosh/emmett
- * v0.2.0
+ * v0.2.1
  *
  * Arduinos tested: Leonardo, Nano, Pro Mini
  * Accelerometer: ADXL345
+ * DAC: MCP4725
  */
 
 // Communicate with the sensor.
@@ -21,31 +22,42 @@
 const float minPowerAngle    = 2;
 const float maxPowerAngle    = 26;
 const float powerDelayAngle  = 9;
-const float powerDelay       = 20; // @todo Switch to time.
-const float powerOffDelay    = 60;
+const float powerDelay       = 50; // @todo Switch to time-based.
+const float powerOffDelay    = 150;
 const float maxTiltAngle     = 33;
 const float minThrottleVolts = 2;
 const float maxThrottleVolts = 2.55;
 const float angleAdjust      = 0.6;
 const float tiltAdjust       = -4.09;
-const float pwmAdjust        = 0;
-const unsigned int readDelay = 10;
-
+const unsigned int readDelay = 5;
+const boolean useAverage     = true;
 const boolean debugging      = true;
+
+// TEMPORARY.
+int ocillate = 0;
+boolean ocillateDirection = true;
+
 
 // Setup alternate pins for Trinket (Adafruit micro-Arduino).
 //#if defined (__AVR_ATtiny85__)
 //#endif
 
 // Pin configurations.
-const unsigned int THROTTLE = 5; // Throttle control.
-const unsigned int REVERSE  = 4; // Reverse relay.
-const unsigned int LIMITER  = 1; // Power limiter.
-//const unsigned int SPI_CS   = -1; // SPI chip select signal pin.
+const unsigned int THROTTLE    = 8; // Throttle control.
+const unsigned int REVERSE     = 6; // Reverse relay.
+const unsigned int LIMITER     = 10; // Power limiter.
+const unsigned int ACC_CS      = 2; // Chip select: accelerometer.
+const unsigned int DAC_CS      = 4; // Chip select: digital to analog.
+// SDA = A4 (note).
+// SCL = A5 (note).
 
 const float         BOARD_VOLTAGE = 5; // Arduino voltage.
 const unsigned int  BYTES_ACCEL   = 6; // Bytes to read from accelerometer.
 const unsigned long LONG_RESET    = 2147483000; // Careful with variable value.
+const unsigned int  DAC_MAX       = 4095; // Signal to voltage boundary.
+// Range boundaries for angle to DAC.
+const unsigned int minSignal = map(minThrottleVolts, 0, BOARD_VOLTAGE, 0, DAC_MAX);
+const unsigned int maxSignal = map(maxThrottleVolts, 0, BOARD_VOLTAGE, 0, DAC_MAX);
 
 // Internal globals.
 float         angles[5]; // Rolling average.
@@ -64,8 +76,9 @@ byte values[BYTES_ACCEL];
 // SPI: SCK -> SCL, MISO -> SDO, MOSI -> SDA
 // i2c: A4 = SDA, A5 = SLC.
 
-// i2c ADXL345 device address (from data sheet).
-#define I2C_ACC_ADDRESS (0x53)
+// I2C device addresses.
+#define I2C_ACC_ADDR (0x53)
+#define I2C_DAC_ADDR (0x60)
 
 // ADXL345 registers.
 const char DATAX0 = 0x32; //X-Axis Data 0
@@ -90,11 +103,11 @@ void setup() {
 //  SPI.begin();
 //  SPI.setDataMode(SPI_MODE3);
 //  // Set the chip select for output.
-//  pinMode(SPI_CS, OUTPUT);
-//  digitalWrite(SPI_CS, HIGH);
+  pinMode(ACC_CS, OUTPUT);
+  digitalWrite(ACC_CS, HIGH);
 
   if (debugging) {
-    Serial.begin(19200);
+    Serial.begin(9600);
   }
 
   // Setup motor limiter.
@@ -107,12 +120,13 @@ void setup() {
 
   // Both SPI and i2c need this.
   // Put ADXL345 into +/- 4G range, write 0x01 to the DATA_FORMAT register.
-  //writeData(I2C_ACC_ADDRESS, 0x31, 0x01);
+  //writeData(I2C_ACC_ADDR, 0x31, 0x01);
   // Put ADXL345 into measurement mode, write 0x08 to the POWER_CTL register.
-  //writeData(I2C_ACC_ADDRESS, 0x2D, 0x08);
-  writeData(I2C_ACC_ADDRESS, 0x2D, 0);
-  writeData(I2C_ACC_ADDRESS, 0x2D, 16);
-  writeData(I2C_ACC_ADDRESS, 0x2D, 8);
+  //writeData(I2C_ACC_ADDR, 0x2D, 0x08);
+
+  writeData(I2C_ACC_ADDR, 0x2D, 0);
+  writeData(I2C_ACC_ADDR, 0x2D, 16);
+  writeData(I2C_ACC_ADDR, 0x2D, 8);
 }
 
 // Continue.
@@ -218,16 +232,21 @@ void powerMotor(float angle) {
   // Avoid computation when ride is off.
   if (angle != 0) {
 
-    // Find desired voltage.
-    float voltage = mapFloat(abs(angle), minPowerAngle, maxPowerAngle, minThrottleVolts, maxThrottleVolts);
-
     // Allow adjusting power.
     float powerLimit = 1.0; //map(analogRead(LIMITER), 0, 1063, 0, 1.0);
 
+    // Find desired voltage.
+    //float voltage = mapFloat(abs(angle), minPowerAngle, maxPowerAngle, minThrottleVolts, maxThrottleVolts);
+    //float signal = mapFloat(voltage, 0, BOARD_VOLTAGE, 0 DAC_MAX);
+    
+    // Send angle as analog voltage.
+    float signal = mapFloat(abs(angle), minPowerAngle, maxPowerAngle, minSignal, maxSignal);
+    analogSignal(signal);
+
     // Find PWM output value.
     // @todo Use power limiter, powerLimit.
-    float pwm = (255 * (voltage / BOARD_VOLTAGE)) + pwmAdjust;
-    analogWrite(THROTTLE, pwm);
+    //float pwm = (255 * (voltage / BOARD_VOLTAGE));
+    //analogWrite(THROTTLE, pwm);
 
     // Set reverse.
     if (angle > 1) {
@@ -239,10 +258,8 @@ void powerMotor(float angle) {
 
     // Debugging.
     if (debugging) {
-      Serial.print(" PWM: ");
-      Serial.print(pwm);
-      Serial.print(" ");
-      Serial.print(voltage);
+      Serial.print(" DAC: ");
+      Serial.print(signal);
       Serial.print("v -- angle: ");
       Serial.print(angle);
       Serial.print(" -- status: ");
@@ -270,20 +287,25 @@ float* findAngles(float *data) {
   // Read x,y and z from accelerometerto the values[] buffer.
   // The ADXL345 gives 10-bit acceleration values, but they are stored as bytes (8-bits).
   // To get the full value, two bytes must be combined for each axis.
-  readData(I2C_ACC_ADDRESS, DATAX0, BYTES_ACCEL, values);
+  readData(I2C_ACC_ADDR, DATAX0, BYTES_ACCEL, values);
   x = ((int)values[1]<<8) | (int)values[0];
   y = ((int)values[3]<<8) | (int)values[2];
-  z = ((int)values[5]<<8) | (int)values[4];
+  z = ((int)values[5]<<8) | (int)values[4];    
 
   // Calculate an angle between -360 and 360.
-  // = atan2(x, z) * 180.0f / M_PI;
-  // Overwrite new value.
-  angles[readIndex] = (atan2((- x) , sqrt(y * y + z * z)) * 57.3) + angleAdjust;
-  // Use average.
-  data[0] = (angles[0] + angles[1] + angles[2] + angles[3] + angles[4]) / 5;
-  readIndex++;
-  if (readIndex >= 5) {
-    readIndex = 0;
+  if (useAverage) {
+    // Overwrite new average buffer value.
+    angles[readIndex] = (atan2(x , z) * 57.3) +  angleAdjust;
+    //angles[readIndex] = atan2(x, z) * 180.0f / M_PI;
+    //angles[readIndex] = (atan2((- x) , sqrt(y * y + z * z)) * 57.3) + angleAdjust;
+    data[0] = (angles[0] + angles[1] + angles[2] + angles[3] + angles[4]) / 5;
+    readIndex++;
+    if (readIndex >= 4) {
+      readIndex = 0;
+    }
+  }
+  else {
+    data[0] = (atan2(x , z) * 57.3) +  angleAdjust;
   }
 
   // Calculate tilt for out-of-bounds/crash sensing.
@@ -301,13 +323,31 @@ float* findAngles(float *data) {
     Serial.print(", ");
     Serial.print(z);
     Serial.print(" Pitch: ");
-    Serial.print(data[0]);
+    Serial.println(data[0]);
     Serial.print(" - Roll: ");
     Serial.print(data[1]); 
     Serial.print(" - ");
   }
 
   return data;
+}
+
+/**
+ * Ouput voltage with the DAC.
+ */
+void analogSignal(int value) {
+  Wire.beginTransmission(I2C_DAC_ADDR);
+  // Update the DAC.
+  Wire.write(64);
+
+  // 8 most significant bits...
+  Wire.write(value >> 4);
+  // 4 least significant bits... 
+  Wire.write((value & 15) << 4);
+  
+  Serial.println(value);
+
+  Wire.endTransmission();
 }
 
 /**
@@ -324,15 +364,14 @@ float mapFloat(float x, float inMin, float inMax, float outMin, float outMax) {
  * char value           - The value to be written to the specified register.
  */
 void writeData(int DEVICE, char address, char value) {
-  // Send register address and value.
   Wire.beginTransmission(DEVICE);
   Wire.write(address);
   Wire.write(value);
   Wire.endTransmission();
-//  digitalWrite(SPI_CS, LOW);
+//  digitalWrite(ACC_CS, LOW);
 //  SPI.transfer(address);
 //  SPI.transfer(value);
-//  digitalWrite(SPI_CS, HIGH);
+//  digitalWrite(ACC_CS, HIGH);
 }
 
 /**
@@ -359,11 +398,11 @@ void readData(int DEVICE, char address, int numBytes, unsigned char * values) {
 //  if (6 > 1) {
 //    address = address | 0x40;
 //  }
-//  digitalWrite(SPI_CS, LOW);
+//  digitalWrite(ACC_CS, LOW);
 //  SPI.transfer(address);
 //  for (int i=0; i<numBytes; i++) {
 //    values[i] = SPI.transfer(0x00);
 //  }
-//  digitalWrite(SPI_CS, HIGH);
+//  digitalWrite(ACC_CS, HIGH);
 }
 
